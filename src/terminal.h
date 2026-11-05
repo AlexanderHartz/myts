@@ -29,7 +29,7 @@
 #define _TERMINAL_H_
 
 /*
- * terminal support for kiterm and launchpad.
+ * terminal support for kiterm and myts.
  * The routines support creation of a terminal session,
  * various manipulations, sending characters to the terminal,
  * and exporting the framebuffer.
