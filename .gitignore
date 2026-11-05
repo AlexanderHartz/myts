@@ -1,2 +1,4 @@
 *.o
-myts.arm
+/build/
+/dist/
+/toolchain/

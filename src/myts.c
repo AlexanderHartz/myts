@@ -42,9 +42,9 @@ int verbose;
 struct my_args __me;
 
 /* the list of applications to use */
-extern struct app lpad;
+extern struct app myts_app;
 struct app *all_apps[] = {
-	&lpad,
+	&myts_app,
 	NULL,
 };
 

@@ -24,12 +24,12 @@
  */
 
 /*
- * Inspired by launchpad code from Andy M. aka h1uke	h1ukeguy @ gmail.com
- * but there is barely any of the original code left here.
+ * Inspired by earlier Kindle input handling code from Andy M. aka h1uke
+ * h1ukeguy @ gmail.com, but there is barely any of the original code left here.
  */
 
 /*
- * launchpad+terminal+webserver program for Kindle.
+ * Terminal and input handling for Kindle.
  * See top level README for details,
  * and config.c for the config file format.
  */
@@ -94,13 +94,13 @@ struct terminal {
 };
 
 /*
- * Overall state for the launchpad.
+ * Overall state for the terminal application.
  * The destructor must:
  *	- preserve all terminal sessions
  *	- call cfg_free(db)
  *	- call cfg_read and init
  */
-struct lp_state {
+struct myts_state {
 	/* e[] contains events sorted by name, with nentries entries.
 	 * by_code[] is a direct access array to get an event by code,
 	 * with pointers into e[]
@@ -109,9 +109,6 @@ struct lp_state {
 	struct key_entry e[256];	/* table of in/out events */
 	struct key_entry *by_code[256];	/* events by code */
 
-	/* actions is a list of configured actions, pointing into the
-	 * [actions] section of the db.
-	 */
 	struct config	*db;		/* the database */
 
 	int		xsym, ysym;	/* initial SYMBOL position (1, 1) */
@@ -150,8 +147,8 @@ struct lp_state {
 };
 
 
-static struct lp_state lpad_desc;
-static struct lp_state *lps;
+static struct myts_state myts_desc;
+static struct myts_state *mts;
 
 static char *symbols, *langsymbols, *shiftlangsymbols;
 
@@ -196,7 +193,7 @@ static void capture_input(int capture);
 static int is_kindle3(void)
 {
 	/* if all 3 /dev/input/event[012] are open then we are on Kindle3 */
-	return (lps->kpad.fdin != -1 && lps->fw.fdin != -1 && lps->vol.fdin != -1);
+	return (mts->kpad.fdin != -1 && mts->fw.fdin != -1 && mts->vol.fdin != -1);
 }
 
 /*
@@ -236,21 +233,21 @@ static struct key_entry *lookup_key(const char *key, int len)
 	}
 	l.name = (char *)key;
 	l.namelen = len ? len : strlen(key);
-	k = bsearch(&l, lps->e, lps->nentries, sizeof(l), ecmp);
+	k = bsearch(&l, mts->e, mts->nentries, sizeof(l), ecmp);
 	if (!k)
 		DBG(0, "entry '%.*s' not found\n", len, key);
 	return k;
 }
 
 /*
- * Helper function that, given "N = a b c d ..." appends to lps.e[]
+ * Helper function that, given "N = a b c d ..." appends to mts.e[]
  * the key_entry sections for the keydefs on the right side.
- * lps.nentries points to the next free slot.
+ * mts.nentries points to the next free slot.
  */
 static int build_seq(struct section *sec)
 {
 	const struct entry *k;
-	struct key_entry *e = lps->e + lps->nentries;
+	struct key_entry *e = mts->e + mts->nentries;
 
 	if (sec == NULL) {
 		DBG(0, "section not found\n");
@@ -289,8 +286,8 @@ static int build_seq(struct section *sec)
 			s += l;
 		}
 	}
-	lps->nentries = e - lps->e;
-	DBG(1, "done %d entries\n", lps->nentries);
+	mts->nentries = e - mts->e;
+	DBG(1, "done %d entries\n", mts->nentries);
 	return 0;
 }
 
@@ -339,41 +336,41 @@ static int setKey(const char *key, int *dst)
 /*
  * reinitialize.
  */
-static int launchpad_init(char *path)
+static int myts_init(char *path)
 {
 	struct section *sec ;
 	int i;
 	struct key_entry *e;
     char *encoding, *font;
 
-	memset(lps, 0, (char *)&lps->savearea - (char *)lps);
+	memset(mts, 0, (char *)&mts->savearea - (char *)mts);
 	/* load initial values */
-	lps->refresh_delay = 100;
-	lps->kpad.fdin = lps->fw.fdin = lps->vol.fdin = lps->special.fdin = -1;
+	mts->refresh_delay = 100;
+	mts->kpad.fdin = mts->fw.fdin = mts->vol.fdin = mts->special.fdin = -1;
 	if (path == NULL)
-		path = lps->cfg_name;
+		path = mts->cfg_name;
 
-	lps->db = cfg_read(path, lps->basedir, NULL);
-	if ( lps->db == NULL) {
+	mts->db = cfg_read(path, mts->basedir, NULL);
+	if ( mts->db == NULL) {
 		DBG(0, "%s -- not found or bad\n", path) ;
 		return -1 ;
 	}
 	/* load file identifiers */
-	sec = cfg_find_section(lps->db, "Settings");
+	sec = cfg_find_section(mts->db, "Settings");
 	if (!sec) {
 		DBG(0, "section Settings not found\n") ;
 		return -1;
 	}
 	/* load system-independent values */
-	setVal(sec, "RefreshDelay", 'i', &lps->refresh_delay);
-	setVal(sec, "KpadIn", 's', &lps->kpad.namein);
-	setVal(sec, "KpadOut", 's', &lps->kpad.nameout);
-	setVal(sec, "FwIn", 's', &lps->fw.namein);
-	setVal(sec, "FwOut", 's', &lps->fw.nameout);
-	setVal(sec, "VolIn", 's', &lps->vol.namein);
-	setVal(sec, "VolOut", 's', &lps->vol.nameout);
-	setVal(sec, "SpecialIn", 's', &lps->special.namein);
-	setVal(sec, "SpecialOut", 's', &lps->special.nameout);
+	setVal(sec, "RefreshDelay", 'i', &mts->refresh_delay);
+	setVal(sec, "KpadIn", 's', &mts->kpad.namein);
+	setVal(sec, "KpadOut", 's', &mts->kpad.nameout);
+	setVal(sec, "FwIn", 's', &mts->fw.namein);
+	setVal(sec, "FwOut", 's', &mts->fw.nameout);
+	setVal(sec, "VolIn", 's', &mts->vol.namein);
+	setVal(sec, "VolOut", 's', &mts->vol.nameout);
+	setVal(sec, "SpecialIn", 's', &mts->special.namein);
+	setVal(sec, "SpecialOut", 's', &mts->special.nameout);
 
     if(setVal(sec, "Symbols", 's', &symbols)) {
         symbols="!@#$%^&*()*+#-_()&!?~$|/\\\"':";
@@ -381,44 +378,44 @@ static int launchpad_init(char *path)
 
     setVal(sec, "Font", 's', &font);
     setVal(sec, "Encoding", 's', &encoding);
-    if(setVal(sec, "FontHeight", 'i', &lps->fontheight)) lps->fontheight=16;
-    if(setVal(sec, "FontWidth", 'i', &lps->fontwidth)) lps->fontwidth=8;
-    if(setVal(sec, "XOffset", 'i', &lps->xofs)) lps->xofs=0;
-    if(setVal(sec, "YOffset", 'i', &lps->yofs)) lps->yofs=40;
-    if(setVal(sec, "ScrollbackLines", 'i', &lps->sb_lines)) lps->sb_lines=0;
-    lps->sb_pos=0;
+    if(setVal(sec, "FontHeight", 'i', &mts->fontheight)) mts->fontheight=16;
+    if(setVal(sec, "FontWidth", 'i', &mts->fontwidth)) mts->fontwidth=8;
+    if(setVal(sec, "XOffset", 'i', &mts->xofs)) mts->xofs=0;
+    if(setVal(sec, "YOffset", 'i', &mts->yofs)) mts->yofs=40;
+    if(setVal(sec, "ScrollbackLines", 'i', &mts->sb_lines)) mts->sb_lines=0;
+    mts->sb_pos=0;
     
 
 	/* try open files so we know on what system we are */
 	i = O_RDONLY | O_NONBLOCK;
-	lps->kpad.fdin	= open(lps->kpad.namein, i);
-	lps->fw.fdin	= open(lps->fw.namein, i);
-	lps->vol.fdin	= open(lps->vol.namein, i);
-	lps->special.fdin	= open(lps->special.namein, i);
+	mts->kpad.fdin	= open(mts->kpad.namein, i);
+	mts->fw.fdin	= open(mts->fw.namein, i);
+	mts->vol.fdin	= open(mts->vol.namein, i);
+	mts->special.fdin	= open(mts->special.namein, i);
 	DBG(2, "open %s %s %s gives %d %d %d\n",
-		lps->kpad.namein, lps->fw.namein, lps->vol.namein,
-		lps->kpad.fdin, lps->fw.fdin, lps->vol.fdin);
+		mts->kpad.namein, mts->fw.namein, mts->vol.namein,
+		mts->kpad.fdin, mts->fw.fdin, mts->vol.fdin);
 
-	if (lps->kpad.fdin == -1 && lps->fw.fdin == -1 && lps->vol.fdin) {
+	if (mts->kpad.fdin == -1 && mts->fw.fdin == -1 && mts->vol.fdin) {
 		DBG(0, "no input available, exiting...\n") ;
 		return -1;
 	}
 	i = O_WRONLY | O_NONBLOCK;
-	lps->kpad.fdout	= open(lps->kpad.nameout, i) ;
-	lps->fw.fdout	= open(lps->fw.nameout, i);
-	lps->vol.fdout	= open(lps->vol.nameout, i);
+	mts->kpad.fdout	= open(mts->kpad.nameout, i) ;
+	mts->fw.fdout	= open(mts->fw.nameout, i);
+	mts->vol.fdout	= open(mts->vol.nameout, i);
 	/* ignore errors on output */
 
 	/* load keymap entries (system-dependent) */
-	build_seq(cfg_find_section(lps->db, "inkeys"));
-	build_seq(cfg_find_section(lps->db,
+	build_seq(cfg_find_section(mts->db, "inkeys"));
+	build_seq(cfg_find_section(mts->db,
 		is_kindle3() ? "inkeys-k3" : "inkeys-dx"));
 	DBG(2, "sort sequences\n");
 
 	/* sort using the extended comparison function */
-	qsort(lps->e, lps->nentries, sizeof(*e), ecmp1);
+	qsort(mts->e, mts->nentries, sizeof(*e), ecmp1);
 	/* now remove duplicates, keeping the shortest sequences */
-	for (e = lps->e, i = 0; i < lps->nentries - 1; i++, e++) {
+	for (e = mts->e, i = 0; i < mts->nentries - 1; i++, e++) {
 	    if (ecmp(e, e+1) == 0) {
 		    DBG(1, "dup %3d for ty %d code %3d y %3d l %d %.*s\n",
 			i, e->type, e->code, e->ysteps,
@@ -427,28 +424,28 @@ static int launchpad_init(char *path)
 	    }
 	}
 	/* second pass, bubble up all duplicate elements */
-	for (e = lps->e, i = 0; i < lps->nentries; i++, e++) {
+	for (e = mts->e, i = 0; i < mts->nentries; i++, e++) {
 		if (e->type == 255) {
-			lps->nentries--;
-			*e = lps->e[lps->nentries];
+			mts->nentries--;
+			*e = mts->e[mts->nentries];
 		}
 	}
 	/* sort again, this time using ecmp */
-	qsort(lps->e, lps->nentries, sizeof(*e), ecmp);
+	qsort(mts->e, mts->nentries, sizeof(*e), ecmp);
 
 	/* build the 'by_code' array, used in output */
-	memset(lps->by_code, 0, sizeof(lps->by_code));
+	memset(mts->by_code, 0, sizeof(mts->by_code));
 	DBG(2, "--- dump events by name ---\n");
-	for (e = lps->e, i = 0; i < lps->nentries; i++, e++) {
+	for (e = mts->e, i = 0; i < mts->nentries; i++, e++) {
 		if (e->type == KT_SEND || e->type == KT_FW)
-			lps->by_code[e->code] = e;
+			mts->by_code[e->code] = e;
 		DBG(2, "%3d ty %d code %3d y %3d l %d %.*s\n",
 				i, e->type, e->code, e->ysteps,
 				e->namelen, e->namelen, e->name);
 	}
 	DBG(2, "--- debugging -- dump events by code ---\n");
 	for (i=0; i < 256; i++) {
-		e = lps->by_code[i];
+		e = mts->by_code[i];
 		if (!e) continue;
 		DBG(2, "%3d ty %d code %3d y %3d l %d %.*s\n",
 				i, e->type, e->code, e->ysteps,
@@ -456,33 +453,31 @@ static int launchpad_init(char *path)
 	}
 
 	/* load parameters that depend on the key mapping */
-	setVal(sec, "TermEnd", 'k', &lps->term_end);
-	setVal(sec, "TermEsc", 'k', &lps->term_esc);
-	setVal(sec, "TermCtrl", 'k', &lps->term_ctrl);
-	setVal(sec, "TermShift", 'k', &lps->term_shift);
-	setVal(sec, "TermSym", 'k', &lps->term_sym);
-	setVal(sec, "TermFn", 'k', &lps->term_fn);
-	setVal(sec, "TermLang", 'k', &lps->term_lang);
-	setVal(sec, "TermHome", 'k', &lps->term_home);
-	setVal(sec, "TermScrollUp", 'k', &lps->term_scrollup);
-	setVal(sec, "TermScrollDown", 'k', &lps->term_scrolldown);
-	lps->xsym = 1;	/* position of initial symbol */
-	lps->ysym = 1;
+	setVal(sec, "TermEnd", 'k', &mts->term_end);
+	setVal(sec, "TermEsc", 'k', &mts->term_esc);
+	setVal(sec, "TermCtrl", 'k', &mts->term_ctrl);
+	setVal(sec, "TermShift", 'k', &mts->term_shift);
+	setVal(sec, "TermSym", 'k', &mts->term_sym);
+	setVal(sec, "TermFn", 'k', &mts->term_fn);
+	setVal(sec, "TermLang", 'k', &mts->term_lang);
+	setVal(sec, "TermHome", 'k', &mts->term_home);
+	setVal(sec, "TermScrollUp", 'k', &mts->term_scrollup);
+	setVal(sec, "TermScrollDown", 'k', &mts->term_scrolldown);
+	mts->xsym = 1;	/* position of initial symbol */
+	mts->ysym = 1;
 
-	setKey("Sym", &lps->sym);
-	setKey("Left", &lps->fw_left);
-	setKey("Right", &lps->fw_right);
-	setKey("Up", &lps->fw_up);
-	setKey("Down", &lps->fw_down);
-	setKey("Select", &lps->fw_select);
-	setKey("Del", &lps->del);
-	setKey("Home", &lps->term_home);
+	setKey("Sym", &mts->sym);
+	setKey("Left", &mts->fw_left);
+	setKey("Right", &mts->fw_right);
+	setKey("Up", &mts->fw_up);
+	setKey("Down", &mts->fw_down);
+	setKey("Select", &mts->fw_select);
+	setKey("Del", &mts->del);
+	setKey("Home", &mts->term_home);
 
-    if (init_font(encoding, font, lps->fontheight, lps->fontwidth)) {
-        if(init_font("CP437.table", "unifont.hex", lps->fontheight, lps->fontwidth)) {
-            DBG(0, "No font found.\n") ;
-            return -1 ;
-        }
+    if (init_font(encoding, font, mts->fontheight, mts->fontwidth)) {
+        DBG(0, "No font found.\n") ;
+        return -1 ;
     }
 
     if(bytesperchar==1) {
@@ -524,28 +519,28 @@ struct terminal *shell_find(const char *name);
 static void capture_input(int capture)
 {
 	capture = capture ? 1 : 0 ; /* normalize */
-	if (lps->kpad.fdin != -1 && ioctl(lps->kpad.fdin, EVIOCGRAB, capture))
+	if (mts->kpad.fdin != -1 && ioctl(mts->kpad.fdin, EVIOCGRAB, capture))
     		perror("Capture kbd input:");
-	if (lps->fw.fdin != -1 && ioctl(lps->fw.fdin, EVIOCGRAB, capture))
+	if (mts->fw.fdin != -1 && ioctl(mts->fw.fdin, EVIOCGRAB, capture))
     		perror("Capture fw input:");
-	if (lps->vol.fdin != -1 && ioctl(lps->vol.fdin, EVIOCGRAB, capture))
+	if (mts->vol.fdin != -1 && ioctl(mts->vol.fdin, EVIOCGRAB, capture))
     		perror("Capture k3_vol input:");
 }
 
 static void curterm_end(void)
 {
-	int l = ds_len(lps->save_pixmap);
+	int l = ds_len(mts->save_pixmap);
 
 	DBG(0, "exit from terminal mode\n");
-	if (l && lps->fb) {
-		pixmap_t *p = &lps->fb->pixmap;
-		memcpy(p->surface, ds_data(lps->save_pixmap), l);
-		ds_reset(lps->save_pixmap);
-		fb_update_area(lps->fb, UMODE_PARTIAL, 0, 0, p->width, p->height, NULL);
+	if (l && mts->fb) {
+		pixmap_t *p = &mts->fb->pixmap;
+		memcpy(p->surface, ds_data(mts->save_pixmap), l);
+		ds_reset(mts->save_pixmap);
+		fb_update_area(mts->fb, UMODE_PARTIAL, 0, 0, p->width, p->height, NULL);
 	}
-	fb_close(lps->fb);
-	lps->curterm = NULL;
-	lps->fb = NULL;
+	fb_close(mts->fb);
+	mts->curterm = NULL;
+	mts->fb = NULL;
 	capture_input(0);
 }
 
@@ -555,7 +550,7 @@ static void curterm_end(void)
 static void process_term(struct input_event *ev, int mode)
 {
 	char k[16];
-	struct key_entry *e = lps->by_code[ev->code];
+	struct key_entry *e = mts->by_code[ev->code];
 	/* simulate ctrl, shift, sym keys */
 	static int ctrl = 0;
 	static int shift = 0;
@@ -575,36 +570,36 @@ static void process_term(struct input_event *ev, int mode)
 	memset(k, 0, sizeof(k));
 	if (ev->value == 1 || ev->value == 2) { /* press */
 #define E_IS(e, s) ((e)->namelen == strlen(s) && !strncasecmp((e)->name, s, (e)->namelen))
-		if (ev->code == lps->term_end) {
+		if (ev->code == mts->term_end) {
             if(shift||fn||ctrl||sym) {
                 if(!help) print_keymap();
                 help=1;
             }  else help=0;
 			return;
         }
-		if (ev->code == lps->term_shift)
+		if (ev->code == mts->term_shift)
 			shift = 1;
-		else if (ev->code == lps->term_ctrl)
+		else if (ev->code == mts->term_ctrl)
 			ctrl = 1;
-		else if (ev->code == lps->term_sym)
+		else if (ev->code == mts->term_sym)
 			sym = 1;
-		else if (ev->code == lps->term_fn)
+		else if (ev->code == mts->term_fn)
 			fn = 1;
-		else if (ev->code == lps->term_lang) {
+		else if (ev->code == mts->term_lang) {
             if(shift)
                 langlock = !langlock;
             else lang = 1;
         } 
-        else if (ev->code == lps->term_scrollup) {
-			lps->sb_pos += lps->sb_step;
+        else if (ev->code == mts->term_scrollup) {
+			mts->sb_pos += mts->sb_step;
             process_screen();
         }
-		else if (ev->code == lps->term_scrolldown) {
-			lps->sb_pos -= lps->sb_step;
-            if (lps->sb_pos<0) lps->sb_pos=0;
+		else if (ev->code == mts->term_scrolldown) {
+			mts->sb_pos -= mts->sb_step;
+            if (mts->sb_pos<0) mts->sb_pos=0;
             process_screen();
         }
-		else if (ev->code == lps->term_home) {
+		else if (ev->code == mts->term_home) {
             strcpy(k, shift ? "\eOF" : "\eOH"); // END or HOME
             home = 1;
         } 
@@ -669,7 +664,7 @@ static void process_term(struct input_event *ev, int mode)
 			}
 		} else if (E_IS(e, "Enter"))
 			k[0] = 13;
-        else if (ev->code == lps->term_esc)
+        else if (ev->code == mts->term_esc)
 			k[0] = 0x1b;	/* escape */
 		else if (E_IS(e, "Space"))
 			k[0] = ' ';
@@ -685,30 +680,30 @@ static void process_term(struct input_event *ev, int mode)
 			strcpy(k, "\e[D");
         }
 	} else if (ev->value == 0) { /* release */
-		if (ev->code == lps->term_end) {
+		if (ev->code == mts->term_end) {
 			if(help) process_screen() ; else curterm_end();
             help=0;
 			return;
 		}
-		if (ev->code == lps->term_shift)
+		if (ev->code == mts->term_shift)
 			shift = 0;
-		else if (ev->code == lps->term_ctrl)
+		else if (ev->code == mts->term_ctrl)
 			ctrl = 0;
-		else if (ev->code == lps->term_sym)
+		else if (ev->code == mts->term_sym)
 			sym = 0;
-		else if (ev->code == lps->term_fn)
+		else if (ev->code == mts->term_fn)
 			fn = 0;
-		else if (ev->code == lps->term_lang)
+		else if (ev->code == mts->term_lang)
 			lang = 0;
-		else if (ev->code == lps->term_home)
+		else if (ev->code == mts->term_home)
 			home = 0;
 	}
-    if(k[0] && lps->sb_pos) {
-        lps->sb_pos=0;
+    if(k[0] && mts->sb_pos) {
+        mts->sb_pos=0;
         process_screen();
     } 
-	if (lps->curterm)
-		term_keyin(lps->curterm->the_shell, k);
+	if (mts->curterm)
+		term_keyin(mts->curterm->the_shell, k);
 }
 
 
@@ -735,8 +730,8 @@ static void print_buf(int x0, int y0, int cols, int cur,
             bg = bg | (bg << 4);
             if ( i == cur )
                 bg |= 0x88;
-            get_char_pixmap(lps->fb->font, cc, &char_pixmap) ;
-            pix_blt(&lps->fb->pixmap, x, y,
+            get_char_pixmap(mts->fb->font, cc, &char_pixmap) ;
+            pix_blt(&mts->fb->pixmap, x, y,
                 &char_pixmap, 0, 0, -1, -1, bg) ;
             x += char_pixmap.width;
             if ( (i+1) % cols == 0) {
@@ -745,7 +740,7 @@ static void print_buf(int x0, int y0, int cols, int cur,
             }
         }
         if(y==y0)y+=char_pixmap.height;
-	fb_update_area(lps->fb, UMODE_PARTIAL, x0, y0,
+	fb_update_area(mts->fb, UMODE_PARTIAL, x0, y0,
 		cols*(char_pixmap.width), y - y0, NULL) ;
 	DBG(2, "end\n");
 }
@@ -764,30 +759,30 @@ void process_screen(void)
 
     r=0;
 
-	timerclear(&lps->screen_due);
-	if (!lps->curterm || !lps->fb)
+	timerclear(&mts->screen_due);
+	if (!mts->curterm || !mts->fb)
 		return;
-	term_state(lps->curterm->the_shell, &st);
+	term_state(mts->curterm->the_shell, &st);
 
-DBG(1, "st.top = %i   sb_pos = %i\n", st.top, lps->sb_pos);
-    if(lps->sb_pos>st.top)lps->sb_pos = st.top;
+DBG(1, "st.top = %i   sb_pos = %i\n", st.top, mts->sb_pos);
+    if(mts->sb_pos>st.top)mts->sb_pos = st.top;
 
-    if(lps->sb_pos) {
-        if (lps->sb_pos>=st.rows) {
+    if(mts->sb_pos) {
+        if (mts->sb_pos>=st.rows) {
             r=st.rows;
         } else {
-            r=lps->sb_pos;
+            r=mts->sb_pos;
         }
-        print_buf(lps->xofs, lps->yofs, st.cols, -1, 
-                    (uint8_t *)st.sb_data+(lps->sb_lines-lps->sb_pos)*st.cols*bytesperchar, r * st.cols,
-		            (uint8_t *)st.sb_attr+(lps->sb_lines-lps->sb_pos)*st.cols, 0);
+        print_buf(mts->xofs, mts->yofs, st.cols, -1, 
+                    (uint8_t *)st.sb_data+(mts->sb_lines-mts->sb_pos)*st.cols*bytesperchar, r * st.cols,
+		            (uint8_t *)st.sb_attr+(mts->sb_lines-mts->sb_pos)*st.cols, 0);
     } 
     if(r<st.rows){
 
         d = (unsigned char *)st.data;
         a = (unsigned char *)st.attr;
 
-        print_buf(lps->xofs, lps->yofs + r*lps->fontheight, st.cols, st.cur, d, (st.rows-r) * st.cols,
+        print_buf(mts->xofs, mts->yofs + r*mts->fontheight, st.cols, st.cur, d, (st.rows-r) * st.cols,
             a, 0);
     }
 }
@@ -809,18 +804,18 @@ void print_keymap() {
     unsigned char buf[65];
     int i, j;
     struct term_state st = { .flags = TS_MOD, .modified = 0};
-	timerclear(&lps->screen_due);
-	if (!lps->curterm || !lps->fb)
+	timerclear(&mts->screen_due);
+	if (!mts->curterm || !mts->fb)
 		return;
-	term_state(lps->curterm->the_shell, &st);
+	term_state(mts->curterm->the_shell, &st);
 
-    print_buf8(0, lps->yofs+lps->fontheight*1, st.cols, -1, (unsigned char *)"    q     w     e     r     t     y     u     i     o     p     ",64 , NULL, 0);
-    print_buf8(0, lps->yofs+lps->fontheight*4, st.cols, -1, (unsigned char *)"    a     s     d     f     g     h     j     k     l     D     ",64 , NULL, 0);
-    print_buf8(0, lps->yofs+lps->fontheight*7, st.cols, -1, (unsigned char *)"    z     x     c     v     b     n     m     .                 ",64 , NULL, 0);
+    print_buf8(0, mts->yofs+mts->fontheight*1, st.cols, -1, (unsigned char *)"    q     w     e     r     t     y     u     i     o     p     ",64 , NULL, 0);
+    print_buf8(0, mts->yofs+mts->fontheight*4, st.cols, -1, (unsigned char *)"    a     s     d     f     g     h     j     k     l     D     ",64 , NULL, 0);
+    print_buf8(0, mts->yofs+mts->fontheight*7, st.cols, -1, (unsigned char *)"    z     x     c     v     b     n     m     .                 ",64 , NULL, 0);
 
     memset(buf,' ',64);
     for(j=0;j<12;j+=3) 
-        print_buf8(0, lps->yofs+lps->fontheight*j, st.cols, -1, buf, 64 , NULL, 0);
+        print_buf8(0, mts->yofs+mts->fontheight*j, st.cols, -1, buf, 64 , NULL, 0);
     for(j=0;j<30;j+=10) {
         memset(buf,' ',64);
         for(i=0;i<(j==20?8:10);i++) { 
@@ -834,7 +829,7 @@ void print_keymap() {
                 }
             } else buf[i*6+5]=fnk[j+i][1];
         }
-        print_buf8(0, lps->yofs+lps->fontheight*(2+(j/10)*3), st.cols, -1, buf, 64 , NULL, 0);
+        print_buf8(0, mts->yofs+mts->fontheight*(2+(j/10)*3), st.cols, -1, buf, 64 , NULL, 0);
     }
     DBG(0, "Help\n");
 }
@@ -852,22 +847,22 @@ static void process_event(struct input_event *ev, int mode)
         char *buf = (char *)ev;
         if(buf[0]=='A') {
             buf[2]='\0';
-			lps->fb = fb_open();	/* also mark terminal mode */
+			mts->fb = fb_open();	/* also mark terminal mode */
 			struct terminal *t = shell_find(buf);
 			DBG(0, "start %s got %p\n", buf, t);
 			if (t == NULL) {
-                fb_close(lps->fb);
+                fb_close(mts->fb);
 				return;
             }
-			if (lps->fb) {	/* if success, input is for us */
-				pixmap_t *pix = &lps->fb->pixmap;
+			if (mts->fb) {	/* if success, input is for us */
+				pixmap_t *pix = &mts->fb->pixmap;
 				int l = pix->width * pix->height * pix->bpp / 8;
-				lps->curterm = t;
-				ds_reset(lps->save_pixmap);
-				ds_append(&lps->save_pixmap, pix->surface, l);
+				mts->curterm = t;
+				ds_reset(mts->save_pixmap);
+				ds_append(&mts->save_pixmap, pix->surface, l);
 				capture_input(1) ;
 				// set a timeout to popup the terminal
-				gettimeofday(&lps->screen_due, NULL);
+				gettimeofday(&mts->screen_due, NULL);
             }
         }
 
@@ -884,7 +879,7 @@ static void process_event(struct input_event *ev, int mode)
 		ev->type, ev->value, ev->code,
 		npressed);
 	/* ignore autorepeat events, ev->value == 2. */
-	if (lps->fb) {
+	if (mts->fb) {
 		process_term(ev, mode);
 		return;
 	}
@@ -892,12 +887,12 @@ static void process_event(struct input_event *ev, int mode)
 
 static void hup_handler(int x)
 {
-	lps->got_signal = 1 ; /* reinit */
+	mts->got_signal = 1 ; /* reinit */
 }
 
 static void int_handler(int x)
 {
-	lps->got_signal = 2 ; /* exit */
+	mts->got_signal = 2 ; /* exit */
 }
 
 static void fd_close(int *fd)
@@ -914,8 +909,8 @@ static void free_terminals(void)
 
 	curterm_end();
 
-	while ( (t = lps->allterm) ) {
-		lps->allterm = t->next;
+	while ( (t = mts->allterm) ) {
+		mts->allterm = t->next;
 		term_kill(t->the_shell, 9);
 		free(t);
 	}
@@ -924,12 +919,12 @@ static void free_terminals(void)
 void term_dead(struct sess *s)
 {
 	struct terminal **t, *cur;
-	for (t = &lps->allterm; (cur = *t); t = &(*t)->next) {
+	for (t = &mts->allterm; (cur = *t); t = &(*t)->next) {
 		if (cur->the_shell != s)
 			continue;
 		DBG(0, "terminal %s is dead\n", cur->name);
 		*t = cur->next;
-		if (lps->curterm == cur)
+		if (mts->curterm == cur)
 			curterm_end();
 		memset(cur, 0, sizeof(*cur));
 		free(cur);
@@ -947,7 +942,7 @@ struct terminal *shell_find(const char *name)
 	struct terminal *t;
 	int l = strlen(name) + 1;
 
-	for (t = lps->allterm; t; t = t->next) {
+	for (t = mts->allterm; t; t = t->next) {
 		if (!strcmp(name, t->name))
 			return t;
 	}
@@ -957,15 +952,15 @@ struct terminal *shell_find(const char *name)
 		return t;
 	}
 	strcpy(t->name, name);
-	t->the_shell = term_new("/bin/sh", t->name, (lps->fb->pixmap.height-2*lps->yofs)/lps->fontheight, 
-            (lps->fb->pixmap.width-2*lps->xofs)/lps->fontwidth, lps->sb_lines, term_dead);
-    lps->sb_step = (lps->fb->pixmap.height-2*lps->yofs)/lps->fontheight/2;
+	t->the_shell = term_new("/bin/sh", t->name, (mts->fb->pixmap.height-2*mts->yofs)/mts->fontheight, 
+            (mts->fb->pixmap.width-2*mts->xofs)/mts->fontwidth, mts->sb_lines, term_dead);
+    mts->sb_step = (mts->fb->pixmap.height-2*mts->yofs)/mts->fontheight/2;
 	if (!t->the_shell) {
 		free(t);
 		return NULL;
 	}
-	t->next = lps->allterm;
-	lps->allterm  = t;
+	t->next = mts->allterm;
+	mts->allterm  = t;
 	return t;
 }
 
@@ -973,10 +968,10 @@ struct terminal *shell_find(const char *name)
 /*
  * prepare for a restart or for final exiting
  */
-static void launchpad_deinit(int restart)
+static void myts_deinit(int restart)
 {
 	DBG(0, "called, restart %d\n", restart);
-	lps->got_signal = 0 ;
+	mts->got_signal = 0 ;
 	// XXX should remove the pending sessions from the scheduler ?
 	curterm_end();
 
@@ -986,49 +981,49 @@ static void launchpad_deinit(int restart)
 
 	if (!restart)
 		free_terminals();
-	fd_close(&lps->kpad.fdin);
-	fd_close(&lps->fw.fdin);
-	fd_close(&lps->vol.fdin);
-	fd_close(&lps->special.fdin);
-	fd_close(&lps->kpad.fdout);
-	fd_close(&lps->fw.fdout);
-	fd_close(&lps->vol.fdout);
-	fd_close(&lps->special.fdout);
-	if (lps->db) {
-		cfg_free(lps->db) ;
-		lps->db = NULL ;
+	fd_close(&mts->kpad.fdin);
+	fd_close(&mts->fw.fdin);
+	fd_close(&mts->vol.fdin);
+	fd_close(&mts->special.fdin);
+	fd_close(&mts->kpad.fdout);
+	fd_close(&mts->fw.fdout);
+	fd_close(&mts->vol.fdout);
+	fd_close(&mts->special.fdout);
+	if (mts->db) {
+		cfg_free(mts->db) ;
+		mts->db = NULL ;
 	}
 }
 
-int launchpad_start(void);
+int myts_start(void);
 
 /*
  * callback for select.
  * We have only one session so ignore _s
  */
-int handle_launchpad(void *_s, struct cb_args *a)
+int handle_input(void *_s, struct cb_args *a)
 {
-	int fds[3] = { lps->kpad.fdin, lps->fw.fdin, lps->vol.fdin };
+	int fds[3] = { mts->kpad.fdin, mts->fw.fdin, mts->vol.fdin };
 	int i, j, ev;
 
-	DBG(2, "fds %d %d %d\n", lps->kpad.fdin, lps->fw.fdin, lps->vol.fdin);
+	DBG(2, "fds %d %d %d\n", mts->kpad.fdin, mts->fw.fdin, mts->vol.fdin);
 	DBG(2, "term %p sh %p \n",
-		lps->fb, lps->curterm);
-	if (lps->kpad.fdin < 0) { /* dead */
+		mts->fb, mts->curterm);
+	if (mts->kpad.fdin < 0) { /* dead */
 		if (a->run == 0)
 			return 0;
 		/* try to restart or terminate ? */
-		launchpad_deinit(0);
+		myts_deinit(0);
 		return 1;
 	}
 	if (a->run == 0) {
 		/* create screen refresh timeout if needed */
-		if (lps->fb && lps->curterm &&
-			    term_state(lps->curterm->the_shell, NULL) &&
-			    !timerisset(&lps->screen_due))
-			timeradd_ms(&a->now, lps->refresh_delay, &lps->screen_due);
+		if (mts->fb && mts->curterm &&
+			    term_state(mts->curterm->the_shell, NULL) &&
+			    !timerisset(&mts->screen_due))
+			timeradd_ms(&a->now, mts->refresh_delay, &mts->screen_due);
 		/* Record pending timeouts */
-		timersetmin(&a->due, &lps->screen_due);
+		timersetmin(&a->due, &mts->screen_due);
 		/* if we have keys to send, ignore input events */
 		for (i=0; i < sizeof(fds)/sizeof(fds[0]); i++) {
 			if (fds[i] >= 0)
@@ -1039,13 +1034,13 @@ int handle_launchpad(void *_s, struct cb_args *a)
 		return 1;
 	}
 
-	if (lps->got_signal == 1) {
-		launchpad_deinit(1);
-		launchpad_start();
+	if (mts->got_signal == 1) {
+		myts_deinit(1);
+		myts_start();
 		return 0;
 	}
-	if (lps->got_signal == 2) {
-		launchpad_deinit(0);
+	if (mts->got_signal == 2) {
+		myts_deinit(0);
 		return 0;
 	}
 	ev = 0;
@@ -1064,11 +1059,11 @@ int handle_launchpad(void *_s, struct cb_args *a)
 				process_event(kbbuf + i, j) ;
 			}
 		}
-        if (read(lps->special.fdin, kbbuf, sizeof(struct input_event))>0) {
+        if (read(mts->special.fdin, kbbuf, sizeof(struct input_event))>0) {
             process_event(kbbuf, -3); /* special mode */
         }
 	}
-	if (timerdue(&lps->screen_due, &a->now)) {
+	if (timerdue(&mts->screen_due, &a->now)) {
 		process_screen();
 		return 0;
 	}
@@ -1078,48 +1073,48 @@ int handle_launchpad(void *_s, struct cb_args *a)
 	return 0;
 }
 
-int launchpad_parse(int *ac, char *av[])
+int myts_parse(int *ac, char *av[])
 {
 	int  i ;
-	lps = __me.app->data;
+	mts = __me.app->data;
 
-	DBG(0, "Launchpad start routine\n");
-	memset(lps, 0, sizeof(*lps));
+	DBG(0, "MyTS start routine\n");
+	memset(mts, 0, sizeof(*mts));
 
-	/* copy the full config name into lps->basedir */
-	i = sizeof(lps->basedir) - strlen(".ini") - 1;
-	if (readlink ("/proc/self/exe", lps->basedir, i) == -1)
-		strncpy(lps->basedir, av[0], i) ;
-	strcat(lps->basedir, ".ini");
+	/* copy the full config name into mts->basedir */
+	i = sizeof(mts->basedir) - strlen(".ini") - 1;
+	if (readlink ("/proc/self/exe", mts->basedir, i) == -1)
+		strncpy(mts->basedir, av[0], i) ;
+	strcat(mts->basedir, ".ini");
 
 	/* dirname() may or may not truncates the argument, so we
 	 * enforce the truncation and append a '/'
 	 */
-	i = strlen( dirname(lps->basedir) );
-	lps->basedir[i] = '\0';
-	lps->cfg_name = lps->basedir + i + 1;
-	lps->cfg_name = "myts.ini"; 
+	i = strlen( dirname(mts->basedir) );
+	mts->basedir[i] = '\0';
+	mts->cfg_name = mts->basedir + i + 1;
+	mts->cfg_name = "myts.ini"; 
     DBG(1, "inipath is %s ini_name %s\n",
-		lps->basedir, lps->cfg_name);
+		mts->basedir, mts->cfg_name);
 	if (*ac > 2 && !strcmp(av[1], "--cfg"))
-		lps->cfg_name = av[2];
+		mts->cfg_name = av[2];
 
 	return 0;
 }
 
-int launchpad_start(void)
+int myts_start(void)
 {
-	new_sess(sizeof(struct sess), -2, handle_launchpad, NULL);
+	new_sess(sizeof(struct sess), -2, handle_input, NULL);
 	signal(SIGINT, int_handler);
 	signal(SIGTERM, int_handler);
 	signal(SIGHUP, hup_handler);
 	process_event(NULL, 0);	/* reset args */
-	if (!launchpad_init(NULL))
+	if (!myts_init(NULL))
 		return 0;
 	DBG(0, "init routine failed, exiting\n");
-	launchpad_deinit(0) ;
+	myts_deinit(0) ;
 	return 0 ;
 }
 
-struct app lpad = { .parse = launchpad_parse,
-	.start = launchpad_start, .data = &lpad_desc};
+struct app myts_app = { .parse = myts_parse,
+	.start = myts_start, .data = &myts_desc};

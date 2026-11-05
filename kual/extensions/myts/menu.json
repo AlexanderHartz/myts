@@ -1,0 +1,50 @@
+{
+	"items": [
+	{
+		"name": "MyTS Terminal",
+		"priority": 0,
+		"items": [
+		{
+			"name": "Terminal 1",
+			"priority": 1,
+			"action": "/bin/sh",
+			"params": "/mnt/us/extensions/myts/myts.sh 1",
+			"exitmenu": false,
+			"status": false
+		},
+		{
+			"name": "Terminal 2",
+			"priority": 2,
+			"action": "/bin/sh",
+			"params": "/mnt/us/extensions/myts/myts.sh 2",
+			"exitmenu": false,
+			"status": false
+		},
+		{
+			"name": "Terminal 3",
+			"priority": 3,
+			"action": "/bin/sh",
+			"params": "/mnt/us/extensions/myts/myts.sh 3",
+			"exitmenu": false,
+			"status": false
+		},
+		{
+			"name": "Stop MyTS",
+			"priority": 4,
+			"action": "/bin/sh",
+			"params": "/mnt/us/extensions/myts/myts.sh kill",
+			"exitmenu": false,
+			"status": false
+		},
+		{
+			"name": "Restart MyTS",
+			"priority": 5,
+			"action": "/bin/sh",
+			"params": "/mnt/us/extensions/myts/myts.sh restart",
+			"exitmenu": false,
+			"status": false
+		}
+		]
+	}
+	]
+}
